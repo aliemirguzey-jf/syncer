@@ -32,12 +32,12 @@ function traverse_and_sync() {
 				echo -e "${YELLOW}[SYNCER] ${MAGENTA}$folder_name${NC}"
 				# Get the default Git branch
 				default_branch=$(git symbolic-ref refs/remotes/origin/HEAD | sed 's@^refs/remotes/origin/@@')
-        
-        status=$(git status -s) 
-        if [ -n "$status" ]; then
+				current_branch=$(git branch --show-current)
+				status=$(git status -s) 
+				if [ -n "$status" ]; then
 					echo -e "${YELLOW}[SYNCER]${NC} There are local changes on the branch: Stashing changes" 
-          git stash
-        fi 
+					git stash
+				fi 
         
 				# Checkout the default Git branch
 				git checkout "$default_branch" >/dev/null
@@ -67,16 +67,18 @@ function traverse_and_sync() {
 						echo -e "${RED}[SYNCER]${NC} No ${BLUE}sync${NC} or ${BLUE}syncAll${NC} script found in: $folder_name"
 					fi
 				fi
-        if [ -n "$status" ]; then
-          output=$(git stash apply)
-          if [[ $output == *"<<<<<<<"* ]]; then
-					  echo -e "${RED}[SYNCER]${NC} Cannot apply the stash: Conflicts occured"
-          else
-					  echo -e "${GREEN}[SYNCER]${NC} Applied stash successfully."
-          fi
-             
-        fi 
-        echo -e "\n"
+
+				if [ -n "$status" ]; then
+					git checkout "$current_branch"
+					output=$(git stash apply)
+					if [[ $output == *"<<<<<<<"* ]]; then
+						echo -e "${RED}[SYNCER]${NC} Cannot apply the stash: Conflicts occured"
+					else
+						echo -e "${GREEN}[SYNCER]${NC} Applied stash successfully."
+					fi
+				fi 
+
+				echo -e "\n"
 			)
 		fi
 	done
