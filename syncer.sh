@@ -13,9 +13,8 @@ NC='\033[0m' # No Color
 ### FUNCTIONS ###
 function traverse_and_sync() {
 	local root_folder=$(cat $CONFIG_FILE | grep folder | cut -d'=' -f2)
-	local developer=$(cat $CONFIG_FILE | grep developer | cut -d'=' -f2)
 
-	echo -e "Dev:$developer\nFolder:$root_folder\nConfigure at $CONFIG_FILE\n"
+	echo -e "Folder:$root_folder\nConfigure at $CONFIG_FILE\n"
 
 	# Check if the root folder exists
 	if [ ! -d "$root_folder" ]; then
@@ -28,55 +27,58 @@ function traverse_and_sync() {
 		if [ -d "$folder" ] && [ -d "$folder/.git" ]; then
 			(
 				cd "$folder" || exit 1
-				folder_name=$(basename "$folder")
+				local folder_name=$(basename "$folder")
 				echo -e "${YELLOW}[SYNCER] ${MAGENTA}$folder_name${NC}"
-				# Get the default Git branch
-				default_branch=$(git symbolic-ref refs/remotes/origin/HEAD | sed 's@^refs/remotes/origin/@@')
-				current_branch=$(git branch --show-current)
-				status=$(git status -s) 
+
+				# Extract Git information
+				local default_branch=$(git symbolic-ref refs/remotes/origin/HEAD | sed 's@^refs/remotes/origin/@@')
+				local current_branch=$(git branch --show-current)
+				local remote_url=$(git config --get remote.origin.url)
+				local owner_repo="${remote_url#https://github.com/}" && owner_repo="${owner_repo%.git}"
+				local status=$(git status -s)
+
 				if [ -n "$status" ]; then
-					echo -e "${YELLOW}[SYNCER]${NC} There are local changes on the branch: Stashing changes" 
+					echo -e "${YELLOW}[SYNCER]${NC} There are local changes on the branch: Stashing changes"
 					git stash
-				fi 
-        
+				fi
+
 				# Checkout the default Git branch
 				git checkout "$default_branch" >/dev/null
 
 				# Sync repo if fork
-				git config --get remote.origin.url | grep $developer >/dev/null
+				git remote | grep -qi 'upstream'
 				if [ $? -eq 0 ]; then
 					echo -e "${YELLOW}[SYNCER]${NC} Syncing fork repo to upstream"
-					gh repo sync $developer/$folder_name
+					gh repo sync "$owner_repo"
 				fi
 
 				# Pull changes from the remote repository and wait for completion
 				git pull >/dev/null
-				# Check if 'sync' script exists, and execute it if found
-				if [ -f "sync" ]; then
-					echo -e "${YELLOW}[SYNCER]${NC} Executing ${BLUE}sync${NC}"
-					./sync >/dev/null
+				if [ $? -eq 0 ]; then
+					# Check if 'sync' script exists, and execute it if found
+					if [ -f "sync" ]; then
+						echo -e "${YELLOW}[SYNCER]${NC} Executing ${BLUE}sync${NC}"
+						./sync >/dev/null
 
-					echo -e "${GREEN}[SYNCER]${NC} Done executing ${BLUE}sync${NC}"
-				else
-					# Execute 'syncAll' script if 'sync' script is not found
-					if [ -f "syncAll" ]; then
-						echo -e "${YELLOW}[SYNCER]${NC} Executing ${BLUE}syncAll${NC}"
-						./syncAll >/dev/null
-						echo -e "${GREEN}[SYNCER]${NC} Done executing ${BLUE}syncAll${NC}"
+						echo -e "${GREEN}[SYNCER]${NC} Done executing ${BLUE}sync${NC}"
 					else
-						echo -e "${RED}[SYNCER]${NC} No ${BLUE}sync${NC} or ${BLUE}syncAll${NC} script found in: $folder_name"
+						# Execute 'syncAll' script if 'sync' script is not found
+						if [ -f "syncAll" ]; then
+							echo -e "${YELLOW}[SYNCER]${NC} Executing ${BLUE}syncAll${NC}"
+							./syncAll >/dev/null
+							echo -e "${GREEN}[SYNCER]${NC} Done executing ${BLUE}syncAll${NC}"
+						else
+							echo -e "${RED}[SYNCER]${NC} No ${BLUE}sync${NC} or ${BLUE}syncAll${NC} script found in: $folder_name"
+						fi
 					fi
+				else
+					echo -e "${RED}[SYNCER]${NC} Cannot pull remote changes in: $folder_name"
 				fi
 
 				if [ -n "$status" ]; then
-					git checkout "$current_branch"
-					output=$(git stash apply)
-					if [[ $output == *"<<<<<<<"* ]]; then
-						echo -e "${RED}[SYNCER]${NC} Cannot apply the stash: Conflicts occured"
-					else
-						echo -e "${GREEN}[SYNCER]${NC} Applied stash successfully."
-					fi
-				fi 
+					git checkout "$current_branch" && git stash apply
+					echo -e "${GREEN}[SYNCER]${NC} Applied stash back."
+				fi
 
 				echo -e "\n"
 			)
